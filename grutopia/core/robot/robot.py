@@ -16,7 +16,6 @@ class BaseRobot:
     robots = {}
 
     def __init__(self, config: RobotUserConfig, robot_model: RobotModel, scene: Scene):
-        print("\n#######################\n###############################################\n#####################\n")
         self.name = config.name
         self.robot_model = robot_model
         self.user_config = config
