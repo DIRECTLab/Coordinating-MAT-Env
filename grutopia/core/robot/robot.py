@@ -131,19 +131,25 @@ def create_robots(config: TaskUserConfig, robot_models: RobotModels, scene: Scen
         Dict[str, BaseRobot]: robot instances dictionary.
     """
     robot_map = {}
-    for robot in config.robots:
-        if robot.type not in BaseRobot.robots:
-            raise KeyError(f'unknown robot type "{robot.type}"')
-        robot_cls = BaseRobot.robots[robot.type]
-        robot_models = robot_models.robots
-        r_model = None
-        for model in robot_models:
-            if model.type == robot.type:
-                r_model = model
-        if r_model is None:
-            raise KeyError(f'robot model of "{robot.type}" is not found')
-        robot_ins = robot_cls(robot, r_model, scene)
-        robot_map[robot.name] = robot_ins
-        robot_ins.set_up_to_scene(scene)
-        log.debug(f'===== {robot.name} loaded =====')
+    try:
+        for robot in config.robots:
+            if robot.type not in BaseRobot.robots:
+                raise KeyError(f'unknown robot type "{robot.type}"')
+            robot_cls = BaseRobot.robots[robot.type]
+            curr_robot_models = robot_models.robots
+            r_model = None
+            for model in curr_robot_models:
+                if model.type == robot.type:
+                    r_model = model
+            if r_model is None:
+                raise KeyError(f'robot model of "{robot.type}" is not found')
+            robot_ins = robot_cls(robot, r_model, scene)
+            robot_map[robot.name] = robot_ins
+            robot_ins.set_up_to_scene(scene)
+            log.debug(f'\n\n\n\n===== {robot.name} loaded =====\n\n\n\n')
+    except Exception as e:
+        print("\n\n\n\nLoading robots failed", e, "\n\n\n\n")
+        print("\n\n\n\nrobot models", robot_models, "\n\n\n\n")
+        exit()
+
     return robot_map
