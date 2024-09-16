@@ -19,7 +19,7 @@ robot_name = env.config.tasks[0].robots[0].name
 
 i = 0
 
-actions = {'h1': {'move_with_keyboard': []}}
+actions = {'h1': {'move_with_keyboard': []}, 'h1-2': {'move_with_keyboard': []}}
 
 while env.simulation_app.is_running():
     i += 1
