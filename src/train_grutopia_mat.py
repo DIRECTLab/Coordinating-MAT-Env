@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 import sys
 import os
-import wandb
 import socket
-import setproctitle
 import numpy as np
 from pathlib import Path
 import torch
@@ -19,13 +17,14 @@ sim_config = SimulatorConfig(file_path)
 
 N_ROLLOUT_THREADS = 1
 SEED = 0
+HEADLESS = True
 
 def make_train_env(config):
 
     def get_env_fn(rank):
         def init_env():
-            env = GRUtopia_MAT_Env(config, rank)
-            env.seed(SEED)
+            env = GRUtopia_MAT_Env(config,HEADLESS)
+            # env.seed(SEED)
             return env
         return init_env
 
