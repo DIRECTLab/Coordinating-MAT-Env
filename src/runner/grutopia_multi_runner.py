@@ -12,6 +12,7 @@ class GRUtopiaRunner(Runner):
     """Runner class to perform training, evaluation. and data collection for SMAC. See parent class for details."""
     def __init__(self, config):
         super(GRUtopiaRunner, self).__init__(config)
+        self.sim_config = config["sim_config"]
 
     def run(self):
         self.warmup()   

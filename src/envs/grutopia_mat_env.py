@@ -13,7 +13,7 @@ import math
 from absl import logging
 
 import random
-from gym.spaces import Discrete
+from gym.spaces import Discrete, Box
 
 from typing import Any, Dict, List
 
@@ -30,12 +30,16 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         self.GRUtopia_base_env: BaseEnv = BaseEnv(config,headless,webrtc,native)
         self.name = name
         self.n_agents = len(config.config_dict['tasks'][0]['robots'])
-        self.action_space = []
-        self.observation_space = []
-        self.share_observation_space = []
+        self.action_space = [Discrete(1)]
+        self.observation_space = [Box(2,2)]
+        self.share_observation_space = [Box(2,2)]
     
     def reset(self):
         return self.GRUtopia_base_env.reset()
 
     def step(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return self.GRUtopia_base_env.step(actions)
+    
+
+    def seed(self, seed):
+        pass
