@@ -25,9 +25,9 @@ tasks:
     - name: "web_chat"
     sensor_params:
     - name: "camera"
-      enable: false
+      enable: true
     - name: "tp_camera"
-      enable: false
+      enable: true
   - name: h1-2
     prim_path: "/World/h1_2"
     type: "HumanoidRobot"
@@ -43,6 +43,6 @@ tasks:
     - name: "web_chat"
     sensor_params:
     - name: "camera"
-      enable: false
+      enable: true
     - name: "tp_camera"
-      enable: false
+      enable: true

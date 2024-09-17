@@ -30,15 +30,22 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         self.GRUtopia_base_env: BaseEnv = BaseEnv(config,headless,webrtc,native)
         self.name = name
         self.n_agents = len(config.config_dict['tasks'][0]['robots'])
-        self.action_space = [Discrete(1)]
+        self.action_space = [Box(3,1)]
         self.observation_space = [Box(2,2)]
         self.share_observation_space = [Box(2,2)]
     
     def reset(self):
-        return self.GRUtopia_base_env.reset()
+        local_state = self.GRUtopia_base_env.reset()[0]
+        global_state = local_state
+        avalible_actions = []
+        return local_state, global_state, avalible_actions
+        
 
     def step(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return self.GRUtopia_base_env.step(actions)
+        local_state = self.GRUtopia_base_env.step(actions)
+        global_state = local_state
+        avalible_actions = []
+        return local_state, global_state, avalible_actions
     
 
     def seed(self, seed):

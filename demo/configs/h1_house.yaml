@@ -7,7 +7,7 @@ tasks:
   name: "h1_house"
   scene_asset_path: GRUtopia/assets/scenes/demo_house/demo_house.usd
   scene_scale: [0.01, 0.01, 0.01]
-  env_num: 1
+  env_num: 2
   offset_size: 1.0
   robots:
   - name: h1

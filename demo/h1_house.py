@@ -25,6 +25,7 @@ while env.simulation_app.is_running():
     i += 1
     env_actions = []
     env_actions.append(actions)
+    env_actions.append(actions)
     obs = env.step(actions=env_actions)
 
     if i % 100 == 0:
