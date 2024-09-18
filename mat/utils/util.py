@@ -1,6 +1,7 @@
 import numpy as np
 import math
 import torch
+from gym.spaces import Box, Dict
 
 def check(input):
     if type(input) == np.ndarray:
@@ -33,6 +34,9 @@ def get_shape_from_obs_space(obs_space):
         obs_shape = obs_space.shape
     elif obs_space.__class__.__name__ == 'list':
         obs_shape = obs_space
+    # Dict
+    elif obs_space.__class__.__name__ == 'Dict':
+        obs_shape = [{key: get_shape_from_obs_space(space) for key, space in obs_space.spaces.items()}]
     else:
         raise NotImplementedError
     return obs_shape

@@ -17,20 +17,15 @@ from grutopia.core.config import SimulatorConfig
 file_path = './GRUtopia/src/configs/train_grutopia_mat.yaml'
 sim_config = SimulatorConfig(file_path)
 
-N_ROLLOUT_THREADS = 1
 SEED = 0
 HEADLESS = True
 
 def make_train_env(all_args):
 
-    def get_env_fn(rank):
-        def init_env():
-            env = GRUtopia_MAT_Env(sim_config, HEADLESS)
-            env.seed(all_args.seed + rank * 1000)
-            return env
-        return init_env
+    env = GRUtopia_MAT_Env(sim_config, HEADLESS)
+    env.seed(all_args.seed * 1000)
 
-    return ShareSubprocVecEnv([get_env_fn(i) for i in range(N_ROLLOUT_THREADS)])
+    return env
 
 def make_eval_env(all_args):
 
@@ -114,6 +109,7 @@ def main(args):
 
     num_agents = len(sim_config.config_dict['tasks'][0]['robots'])
     all_args.run_dir = run_dir
+    all_args.n_rollout_threads = sim_config.config_dict['tasks'][0]['env_num']
     envs = make_train_env(all_args)
     eval_envs = None
 
@@ -142,4 +138,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+     main(sys.argv[1:])

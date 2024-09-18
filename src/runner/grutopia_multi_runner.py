@@ -5,23 +5,101 @@ from functools import reduce
 import torch
 from mat.runner.shared.base_runner import Runner
 
+import os
+from tensorboardX import SummaryWriter
+from src.utils.gru_shared_buffer import GRUSharedReplayBuffer
+from mat.algorithms.mat.mat_trainer import MATTrainer as TrainAlgo
+from src.policy.gru_transformer_policy import GRUTransformerPolicy as Policy
+
+
 def _t2n(x):
     return x.detach().cpu().numpy()
 
 class GRUtopiaRunner(Runner):
-    """Runner class to perform training, evaluation. and data collection for SMAC. See parent class for details."""
     def __init__(self, config):
-        super(GRUtopiaRunner, self).__init__(config)
+        self.all_args = config['all_args']
+        self.envs = config['envs']
+        self.eval_envs = config['eval_envs']
+        self.device = config['device']
+        self.num_agents = config['num_agents']
+        if config.__contains__("render_envs"):
+            self.render_envs = config['render_envs']       
+
+        # parameters
+        self.env_name = self.all_args.env_name
+        self.algorithm_name = self.all_args.algorithm_name
+        self.experiment_name = self.all_args.experiment_name
+        self.use_centralized_V = self.all_args.use_centralized_V
+        self.use_obs_instead_of_state = self.all_args.use_obs_instead_of_state
+        self.num_env_steps = self.all_args.num_env_steps
+        self.episode_length = self.all_args.episode_length
+        self.n_rollout_threads = self.all_args.n_rollout_threads
+        self.n_eval_rollout_threads = self.all_args.n_eval_rollout_threads
+        self.n_render_rollout_threads = self.all_args.n_render_rollout_threads
+        self.use_linear_lr_decay = self.all_args.use_linear_lr_decay
+        self.hidden_size = self.all_args.hidden_size
+        self.use_wandb = self.all_args.use_wandb
+        self.use_render = self.all_args.use_render
+        self.recurrent_N = self.all_args.recurrent_N
+
+        # interval
+        self.save_interval = self.all_args.save_interval
+        self.use_eval = self.all_args.use_eval
+        self.eval_interval = self.all_args.eval_interval
+        self.log_interval = self.all_args.log_interval
+
+        # dir
+        self.model_dir = self.all_args.model_dir
+
         self.sim_config = config["sim_config"]
+
+        if self.use_wandb:
+            self.save_dir = str(wandb.run.dir)
+            self.run_dir = str(wandb.run.dir)
+        else:
+            self.run_dir = config["run_dir"]
+            self.log_dir = str(self.run_dir / 'logs')
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+            self.writter = SummaryWriter(self.log_dir)
+            self.save_dir = str(self.run_dir / 'models')
+            if not os.path.exists(self.save_dir):
+                os.makedirs(self.save_dir)
+
+        share_observation_space = self.envs.share_observation_space[0] if self.use_centralized_V else self.envs.observation_space[0]
+
+        print("obs_space: ", self.envs.observation_space)
+        print("share_obs_space: ", self.envs.share_observation_space)
+        print("act_space: ", self.envs.action_space)
+
+        # policy network
+        self.policy = Policy(self.all_args,
+                             self.envs.observation_space[0],
+                             share_observation_space,
+                             self.envs.action_space[0],
+                             self.num_agents,
+                             device=self.device)
+
+        if self.model_dir is not None:
+            self.restore(self.model_dir)
+
+        # algorithm
+        self.trainer = TrainAlgo(self.all_args, self.policy, self.num_agents, device=self.device)
+        
+        # buffer
+        self.buffer = GRUSharedReplayBuffer(self.all_args,
+                                        self.num_agents,
+                                        self.envs.observation_space[0],
+                                        share_observation_space,
+                                        self.envs.action_space[0],
+                                         self.all_args.env_name)
+        
 
     def run(self):
         self.warmup()   
 
         start = time.time()
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
-
-        last_battles_game = np.zeros(self.n_rollout_threads, dtype=np.float32)
-        last_battles_won = np.zeros(self.n_rollout_threads, dtype=np.float32)
 
         for episode in range(episodes):
             if self.use_linear_lr_decay:
@@ -54,39 +132,7 @@ class GRUtopiaRunner(Runner):
             # log information
             if episode % self.log_interval == 0:
                 end = time.time()
-                print("\n Multi-Maps Algo {} Exp {} updates {}/{} episodes, total num timesteps {}/{}, FPS {}.\n"
-                        .format(self.algorithm_name,
-                                self.experiment_name,
-                                episode,
-                                episodes,
-                                total_num_steps,
-                                self.num_env_steps,
-                                int(total_num_steps / (end - start))))
-
-                battles_won = []
-                battles_game = []
-                incre_battles_won = []
-                incre_battles_game = []
-
-                for i, info in enumerate(infos):
-                    if 'battles_won' in info[0].keys():
-                        battles_won.append(info[0]['battles_won'])
-                        incre_battles_won.append(info[0]['battles_won']-last_battles_won[i])
-                    if 'battles_game' in info[0].keys():
-                        battles_game.append(info[0]['battles_game'])
-                        incre_battles_game.append(info[0]['battles_game']-last_battles_game[i])
-
-                incre_win_rate = np.sum(incre_battles_won)/np.sum(incre_battles_game) if np.sum(incre_battles_game)>0 else 0.0
-                print("incre win rate is {}.".format(incre_win_rate))
-                if self.use_wandb:
-                    wandb.log({"incre_win_rate": incre_win_rate}, step=total_num_steps)
-                else:
-                    self.writter.add_scalars("incre_win_rate", {"incre_win_rate": incre_win_rate}, total_num_steps)
-
-                last_battles_game = battles_game
-                last_battles_won = battles_won
-
-                train_infos['dead_ratio'] = 1 - self.buffer.active_masks.sum() / reduce(lambda x, y: x*y, list(self.buffer.active_masks.shape)) 
+                
                 
                 self.log_train(train_infos, total_num_steps)
 
@@ -96,26 +142,29 @@ class GRUtopiaRunner(Runner):
 
     def warmup(self):
         # reset env
-        obs, share_obs, available_actions = self.envs.reset()
+        obs, share_obs = self.envs.reset()
 
         # replay buffer
         if not self.use_centralized_V:
             share_obs = obs
 
-        self.buffer.share_obs[0] = share_obs.copy()
-        self.buffer.obs[0] = obs.copy()
-        self.buffer.available_actions[0] = available_actions.copy()
+        if self.buffer.dict_keys == None:
+            self.buffer.share_obs[0] = share_obs.copy()
+            self.buffer.obs[0] = obs.copy()
+        else:
+            for key in self.buffer.dict_keys:
+                self.buffer.share_obs[key][0] = share_obs[key].copy()
+                self.buffer.obs[key][0] = obs[key].copy()
 
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
         value, action, action_log_prob, rnn_state, rnn_state_critic \
-            = self.trainer.policy.get_actions(np.concatenate(self.buffer.share_obs[step]),
-                                            np.concatenate(self.buffer.obs[step]),
+            = self.trainer.policy.get_actions({key:np.concatenate(self.buffer.share_obs[key][step]) for key in self.buffer.dict_keys},
+                                            {key:np.concatenate(self.buffer.obs[key][step]) for key in self.buffer.dict_keys},
                                             np.concatenate(self.buffer.rnn_states[step]),
                                             np.concatenate(self.buffer.rnn_states_critic[step]),
-                                            np.concatenate(self.buffer.masks[step]),
-                                            np.concatenate(self.buffer.available_actions[step]))
+                                            np.concatenate(self.buffer.masks[step]))
         # [self.envs, agents, dim]
         values = np.array(np.split(_t2n(value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))

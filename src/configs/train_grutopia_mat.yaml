@@ -4,45 +4,29 @@ simulator:
 
 tasks:
 - type: "SingleInferenceTask"
-  name: "h1_house"
-  scene_asset_path: GRUtopia/assets/scenes/demo_house/demo_house.usd
+  name: "test"
+  scene_asset_path: GRUtopia/assets/scenes/empty.usd
   scene_scale: [0.01, 0.01, 0.01]
-  env_num: 1
-  offset_size: 1.0
+  env_num: 3
+  offset_size: 30.0
   robots:
-  - name: h1
-    prim_path: "/World/h1"
+  - name: r1
+    prim_path: "/World/r1"
     type: "HumanoidRobot"
     position: [5.58, .5, 1.05]
     scale: [1, 1, 1]
     controller_params:
     - name: "move_by_speed"
-    - name: "joint_controller"
-    - name: "move_to_point"
-    - name: "move_along_path"
-    - name: "rotate"
-    - name: "move_with_keyboard"
-    - name: "web_chat"
     sensor_params:
     - name: "camera"
       enable: true
-    - name: "tp_camera"
-      enable: true
-  - name: h1-2
-    prim_path: "/World/h1_2"
+  - name: r2
+    prim_path: "/World/r2"
     type: "HumanoidRobot"
     position: [6, -0.77, 1.05]
     scale: [1, 1, 1]
     controller_params:
     - name: "move_by_speed"
-    - name: "joint_controller"
-    - name: "move_to_point"
-    - name: "move_along_path"
-    - name: "rotate"
-    - name: "move_with_keyboard"
-    - name: "web_chat"
     sensor_params:
     - name: "camera"
-      enable: true
-    - name: "tp_camera"
       enable: true
