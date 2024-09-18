@@ -271,13 +271,14 @@ class GRUSharedReplayBuffer(object):
 
         # keep (num_agent, dim)
         
-
         if self.dict_keys == None:
             share_obs = self.share_obs[:-1].reshape(-1, *self.share_obs.shape[2:])
             share_obs = share_obs[rows, cols]
             obs = self.obs[:-1].reshape(-1, *self.obs.shape[2:])
             obs = obs[rows, cols]
         else:
+            share_obs={}
+            obs={}
             for key in self.dict_keys:
                 share_obs[key] = self.share_obs[key][:-1].reshape(-1, *self.share_obs[key].shape[2:])
                 share_obs[key] = share_obs[key][rows, cols]
@@ -314,6 +315,8 @@ class GRUSharedReplayBuffer(object):
                 share_obs_batch = share_obs[indices].reshape(-1, *share_obs.shape[2:])
                 obs_batch = obs[indices].reshape(-1, *obs.shape[2:])
             else:
+                share_obs_batch={}
+                obs_batch={}
                 for key in self.dict_keys:
                     share_obs_batch[key] = share_obs[key][indices].reshape(-1, *share_obs[key].shape[2:])
                     obs_batch[key] = obs[key][indices].reshape(-1, *obs[key].shape[2:])

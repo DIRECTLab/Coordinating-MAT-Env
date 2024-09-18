@@ -110,9 +110,9 @@ class GRUtopiaRunner(Runner):
                 values, actions, action_log_probs, rnn_states, rnn_states_critic = self.collect(step)
                     
                 # Obser reward and next obs
-                obs, share_obs, rewards, dones, infos, available_actions = self.envs.step(actions)
+                obs, share_obs, rewards, dones, infos = self.envs.step(actions)
 
-                data = obs, share_obs, rewards, dones, infos, available_actions, \
+                data = obs, share_obs, rewards, dones, infos, \
                        values, actions, action_log_probs, \
                        rnn_states, rnn_states_critic 
                 
@@ -139,6 +139,17 @@ class GRUtopiaRunner(Runner):
             # eval
             if episode % self.eval_interval == 0 and self.use_eval:
                 self.eval(total_num_steps)
+    
+    @torch.no_grad()
+    def compute(self):
+        """Calculate returns for the collected data."""
+        self.trainer.prep_rollout()
+        next_values = self.trainer.policy.get_values({key:np.concatenate(self.buffer.share_obs[key][-1]) for key in self.buffer.dict_keys},
+                                                        {key:np.concatenate(self.buffer.obs[key][-1]) for key in self.buffer.dict_keys},
+                                                        np.concatenate(self.buffer.rnn_states_critic[-1]),
+                                                        np.concatenate(self.buffer.masks[-1]))
+        next_values = np.array(np.split(_t2n(next_values), self.n_rollout_threads))
+        self.buffer.compute_returns(next_values, self.trainer.value_normalizer)
 
     def warmup(self):
         # reset env
@@ -175,7 +186,7 @@ class GRUtopiaRunner(Runner):
         return values, actions, action_log_probs, rnn_states, rnn_states_critic
 
     def insert(self, data):
-        obs, share_obs, rewards, dones, infos, available_actions, \
+        obs, share_obs, rewards, dones, infos, \
         values, actions, action_log_probs, rnn_states, rnn_states_critic = data
 
         dones_env = np.all(dones, axis=1)
@@ -185,18 +196,12 @@ class GRUtopiaRunner(Runner):
 
         masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
         masks[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
-
-        active_masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-        active_masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
-        active_masks[dones_env == True] = np.ones(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
-
-        bad_masks = np.array([[[0.0] if info[agent_id]['bad_transition'] else [1.0] for agent_id in range(self.num_agents)] for info in infos])
         
         if not self.use_centralized_V:
             share_obs = obs
 
         self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic,
-                           actions, action_log_probs, values, rewards, masks, bad_masks, active_masks, available_actions)
+                           actions, action_log_probs, values, rewards, masks)
 
     def log_train(self, train_infos, total_num_steps):
         train_infos["average_step_rewards"] = np.mean(self.buffer.rewards)

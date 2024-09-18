@@ -148,8 +148,9 @@ class GRUTransformerPolicy:
         :return values: (torch.Tensor) value function predictions.
         """
 
-        cent_obs = cent_obs.reshape(-1, self.num_agents, self.share_obs_dim)
-        obs = obs.reshape(-1, self.num_agents, self.obs_dim)
+        cent_obs = cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0])
+        obs = obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0])
+
         if available_actions is not None:
             available_actions = available_actions.reshape(-1, self.num_agents, self.act_dim)
 
@@ -177,8 +178,8 @@ class GRUTransformerPolicy:
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
-        cent_obs = cent_obs.reshape(-1, self.num_agents, self.share_obs_dim)
-        obs = obs.reshape(-1, self.num_agents, self.obs_dim)
+        cent_obs = cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0])
+        obs = obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0])
         actions = actions.reshape(-1, self.num_agents, self.act_num)
         if available_actions is not None:
             available_actions = available_actions.reshape(-1, self.num_agents, self.act_dim)

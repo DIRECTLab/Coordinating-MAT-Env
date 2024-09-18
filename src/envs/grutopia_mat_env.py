@@ -56,9 +56,14 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
     def step(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         actions = self._convert_actions(actions)
         local_state = self.GRUtopia_base_env.step(actions)
-
+        local_state = self._convert_obs_to_array(local_state)
         global_state = local_state
-        return local_state, global_state
+
+        reward = np.zeros((self.num_envs,self.num_agents,1))
+        dones = np.zeros((self.num_envs,self.num_agents))
+        infos = {}
+
+        return local_state, global_state, reward, dones, infos
     
 
     def seed(self, seed):
@@ -67,12 +72,12 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
     def _convert_actions(self,actions):
         total_actions = []
 
-        test = np.split(actions, actions.shape, self.num_agents)
-
         for i in range(self.num_envs):
-            total_actions.append({r['name']:0 for r in self.sim_config.config_dict['tasks'][0]['robots']})
+            total_actions.append({r['name']:{'move_by_speed':actions[i][j]} for j,r in enumerate(self.sim_config.config_dict['tasks'][0]['robots'])})
 
-        test = np.split(actions, actions.shape, self.num_agents, axis=-1)
+        return total_actions
+
+        
 
     def _convert_obs_to_array(self,obs):
         total_array_pos_ori = []
@@ -85,7 +90,7 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
                 robot_obs = obs[world][robot]
 
                 position = np.concatenate((robot_obs['position'],robot_obs['orientation']))
-                camera = robot_obs['camera']['rgba']
+                camera = robot_obs['camera']['rgba']/255
 
                 world_array_pos_ori.append(position)
                 world_array_cam.append(camera)
