@@ -133,7 +133,7 @@ class GRUtopiaRunner(Runner):
             if episode % self.log_interval == 0:
                 end = time.time()
                 
-                
+                print(f"\nEpisode time: {(end-start)/self.log_interval:.2} seconds\npercent done: {episode/episodes*100:.2}% ({episode}/{episodes})")
                 self.log_train(train_infos, total_num_steps)
 
             # eval

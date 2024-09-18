@@ -4,6 +4,7 @@ from mat.utils.util import update_linear_schedule
 from mat.utils.util import get_shape_from_obs_space, get_shape_from_act_space
 from mat.algorithms.utils.util import check
 from mat.algorithms.mat.algorithm.ma_transformer import MultiAgentTransformer
+from src.policy.conv_net import CustomConvNet
 
 
 class GRUTransformerPolicy:
@@ -47,7 +48,7 @@ class GRUTransformerPolicy:
         self.tpdv = dict(dtype=torch.float32, device=device)
 
         if self.algorithm_name in ["mat", "mat_dec"]:
-            from mat.algorithms.mat.algorithm.ma_transformer import MultiAgentTransformer as MAT
+            from src.policy.ma_transformer import MultiAgentTransformer as MAT
         elif self.algorithm_name == "mat_gru":
             from mat.algorithms.mat.algorithm.mat_gru import MultiAgentGRU as MAT
         elif self.algorithm_name == "mat_decoder":

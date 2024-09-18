@@ -72,6 +72,7 @@ def main(args):
         all_args.dec_actor = True
         all_args.share_actor = True
 
+    all_args.env_name = sim_config.config_dict['tasks'][0]['name']
 
     print("choose to use gpu...")
     device = torch.device("cuda:0")
@@ -110,6 +111,7 @@ def main(args):
     num_agents = len(sim_config.config_dict['tasks'][0]['robots'])
     all_args.run_dir = run_dir
     all_args.n_rollout_threads = sim_config.config_dict['tasks'][0]['env_num']
+    
     envs = make_train_env(all_args)
     eval_envs = None
 
