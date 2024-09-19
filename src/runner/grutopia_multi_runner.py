@@ -11,6 +11,8 @@ from src.utils.gru_shared_buffer import GRUSharedReplayBuffer
 from mat.algorithms.mat.mat_trainer import MATTrainer as TrainAlgo
 from src.policy.gru_transformer_policy import GRUTransformerPolicy as Policy
 
+import multiprocessing
+import queue
 
 def _t2n(x):
     return x.detach().cpu().numpy()
@@ -18,7 +20,8 @@ def _t2n(x):
 class GRUtopiaRunner(Runner):
     def __init__(self, config):
         self.all_args = config['all_args']
-        self.envs = config['envs']
+        self.envs_fn = config['envs_fn']
+        self.envs = self.envs_fn(True)
         self.eval_envs = config['eval_envs']
         self.device = config['device']
         self.num_agents = config['num_agents']
@@ -61,155 +64,344 @@ class GRUtopiaRunner(Runner):
             self.log_dir = str(self.run_dir / 'logs')
             if not os.path.exists(self.log_dir):
                 os.makedirs(self.log_dir)
-            self.writter = SummaryWriter(self.log_dir)
+            # self.writter = SummaryWriter(self.log_dir)
             self.save_dir = str(self.run_dir / 'models')
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
 
-        share_observation_space = self.envs.share_observation_space[0] if self.use_centralized_V else self.envs.observation_space[0]
+        self.share_observation_space = self.envs.share_observation_space[0] if self.use_centralized_V else self.envs.observation_space[0]
 
         print("obs_space: ", self.envs.observation_space)
         print("share_obs_space: ", self.envs.share_observation_space)
         print("act_space: ", self.envs.action_space)
 
         # policy network
-        self.policy = Policy(self.all_args,
-                             self.envs.observation_space[0],
-                             share_observation_space,
-                             self.envs.action_space[0],
-                             self.num_agents,
-                             device=self.device)
-
-        if self.model_dir is not None:
-            self.restore(self.model_dir)
-
-        # algorithm
-        self.trainer = TrainAlgo(self.all_args, self.policy, self.num_agents, device=self.device)
+        # self.policy = Policy(self.all_args,
+        #                      self.envs.observation_space[0],
+        #                      share_observation_space,
+        #                      self.envs.action_space[0],
+        #                      self.num_agents,
+        #                      device=self.device)
         
-        # buffer
-        self.buffer = GRUSharedReplayBuffer(self.all_args,
+        self.reset_env = self.envs.reset()
+
+        # self.create_policy_fn = lambda: Policy(self.all_args,
+        #                                           self.envs.observation_space[0],
+        #                                             self.share_observation_space,
+        #                                             self.envs.action_space[0],
+        #                                             self.num_agents,
+        #                                             device=self.device)
+
+        # # if self.model_dir is not None:
+        # #     self.restore(self.model_dir)
+
+        # # algorithm
+        # self.create_trainer_fn = lambda policy: TrainAlgo(self.all_args, policy, self.num_agents, device=self.device)
+        
+        # # buffer
+        # # buffer = GRUSharedReplayBuffer(self.all_args,
+        # #                                 self.num_agents,
+        # #                                 self.envs.observation_space[0],
+        # #                                 share_observation_space,
+        # #                                 self.envs.action_space[0],
+        # #                                  self.all_args.env_name)
+
+        # self.create_buffer_fn = lambda: GRUSharedReplayBuffer(self.all_args,
+        #                                 self.num_agents,
+        #                                 self.envs.observation_space[0],
+        #                                 self.share_observation_space,
+        #                                 self.envs.action_space[0],
+        #                                 self.all_args.env_name)
+        
+    def create_buffer_fn(self):
+        return GRUSharedReplayBuffer(self.all_args,
                                         self.num_agents,
                                         self.envs.observation_space[0],
-                                        share_observation_space,
+                                        self.share_observation_space,
                                         self.envs.action_space[0],
-                                         self.all_args.env_name)
+                                        self.all_args.env_name)
+    
+    def create_policy_fn(self):
+        return Policy(self.all_args,
+                        self.envs.observation_space[0],
+                        self.share_observation_space,
+                        self.envs.action_space[0],
+                        self.num_agents,
+                        device=self.device)
+    
+    def create_trainer_fn(self, policy):
+        return TrainAlgo(self.all_args, policy, self.num_agents, device=self.device)
+
+    def create_writer(self):  
+        return SummaryWriter(self.log_dir)
         
+    def multiprocess_trainer(self,data_queue, param_queue, create_writer, create_policy_fn, create_buffer_fn ,create_trainer_fn):
+        def log_train(train_infos, total_num_steps, buffer, writter):
+            train_infos["average_step_rewards"] = np.mean(buffer.rewards)
+            for k, v in train_infos.items():
+                if self.use_wandb:
+                    wandb.log({k: v}, step=total_num_steps)
+                else:
+                    writter.add_scalars(k, {k: v}, total_num_steps)
 
-    def run(self):
-        self.warmup()   
+        def warmup(buffer):
+            # reset env
+            
+            obs, share_obs = self.reset_env
 
-        start = time.time()
-        episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+            # replay buffer
+            if not self.use_centralized_V:
+                share_obs = obs
 
+            if buffer.dict_keys == None:
+                buffer.share_obs[0] = share_obs.copy()
+                buffer.obs[0] = obs.copy()
+            else:
+                for key in buffer.dict_keys:
+                    buffer.share_obs[key][0] = share_obs[key].copy()
+                    buffer.obs[key][0] = obs[key].copy()
+        
+        @torch.no_grad()
+        def compute(buffer, trainer):
+            """Calculate returns for the collected data."""
+            trainer.prep_rollout()
+            next_values = trainer.policy.get_values({key:np.concatenate(buffer.share_obs[key][-1]) for key in buffer.dict_keys},
+                                                            {key:np.concatenate(buffer.obs[key][-1]) for key in buffer.dict_keys},
+                                                            np.concatenate(buffer.rnn_states_critic[-1]),
+                                                            np.concatenate(buffer.masks[-1]))
+            next_values = np.array(np.split(_t2n(next_values), self.n_rollout_threads))
+            buffer.compute_returns(next_values, trainer.value_normalizer)
+
+        def train(trainer, buffer):
+            """Train policies with data in buffer. """
+            trainer.prep_training()
+            train_infos = trainer.train(buffer)      
+            buffer.after_update()
+            return train_infos
+        
+        def insert(data, buffer):
+            obs, share_obs, rewards, dones, infos, \
+            values, actions, action_log_probs, rnn_states, rnn_states_critic = data
+
+            dones_env = np.all(dones, axis=1)
+
+            rnn_states[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+            rnn_states_critic[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, *buffer.rnn_states_critic.shape[3:]), dtype=np.float32)
+
+            masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+            masks[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
+            
+            if not self.use_centralized_V:
+                share_obs = obs
+
+            buffer.insert(share_obs, obs, rnn_states, rnn_states_critic,
+                            actions, action_log_probs, values, rewards, masks)
+        writer = create_writer()
+        policy = create_policy_fn()
+        trainer = create_trainer_fn(policy)
+        buffer = create_buffer_fn()
+        warmup(buffer)
+        episode = 0
+        while True:
+            # Collect a batch of experiences from the queue
+            while True:
+                experience = data_queue.get()
+                if experience is None:
+                    # Data collection is done, exit
+                    print("Trainer process received termination signal.")
+                    if buffer.step > 0:
+                        compute(buffer,trainer)
+                        train_infos = train(trainer,buffer)
+                        param_queue.put(policy.get_state_dict())
+                        print("Network parameters updated with remaining data.")
+                    return
+                
+                insert(experience,buffer)
+                if buffer.step == 0:
+                    break
+
+            # Process the batch
+            if buffer.step == 0:
+                
+                compute(buffer,trainer)
+                train_infos = train(trainer,buffer)
+                param_queue.put(policy.get_state_dict())
+
+                total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads           
+                # save model
+                if episode % self.save_interval == 0:
+                    self.save(episode)
+                    print(f"Model saved at episode {episode}.")
+                episode += 1
+                # log information
+                if episode % self.log_interval == 0:
+                    log_train(train_infos, total_num_steps, buffer, writer)
+
+    def multiprocess_data_collection(self,data_queue, param_queue, episodes, episode_length, envs_fn ,create_policy_fn, create_buffer_fn):
+
+        def warmup(buffer):
+            # reset env
+            obs, share_obs = self.reset_env
+
+            # replay buffer
+            if not self.use_centralized_V:
+                share_obs = obs
+
+            if buffer.dict_keys == None:
+                buffer.share_obs[0] = share_obs.copy()
+                buffer.obs[0] = obs.copy()
+            else:
+                for key in buffer.dict_keys:
+                    buffer.share_obs[key][0] = share_obs[key].copy()
+                    buffer.obs[key][0] = obs[key].copy()
+
+        def insert(data, buffer):
+            obs, share_obs, rewards, dones, infos, \
+            values, actions, action_log_probs, rnn_states, rnn_states_critic = data
+
+            dones_env = np.all(dones, axis=1)
+
+            rnn_states[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+            rnn_states_critic[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, *buffer.rnn_states_critic.shape[3:]), dtype=np.float32)
+
+            masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+            masks[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
+            
+            if not self.use_centralized_V:
+                share_obs = obs
+
+            buffer.insert(share_obs, obs, rnn_states, rnn_states_critic,
+                            actions, action_log_probs, values, rewards, masks)
+
+        @torch.no_grad()
+        def collect(step, buffer, policy):
+            policy.eval()
+            value, action, action_log_prob, rnn_state, rnn_state_critic \
+                = policy.get_actions({key:np.concatenate(buffer.share_obs[key][step]) for key in buffer.dict_keys},
+                                                {key:np.concatenate(buffer.obs[key][step]) for key in buffer.dict_keys},
+                                                np.concatenate(buffer.rnn_states[step]),
+                                                np.concatenate(buffer.rnn_states_critic[step]),
+                                                np.concatenate(buffer.masks[step]))
+            # [self.envs, agents, dim]
+            values = np.array(np.split(_t2n(value), self.n_rollout_threads))
+            actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
+            action_log_probs = np.array(np.split(_t2n(action_log_prob), self.n_rollout_threads))
+            rnn_states = np.array(np.split(_t2n(rnn_state), self.n_rollout_threads))
+            rnn_states_critic = np.array(np.split(_t2n(rnn_state_critic), self.n_rollout_threads))
+
+            return values, actions, action_log_probs, rnn_states, rnn_states_critic
+
+        policy = create_policy_fn()
+        envs = envs_fn()
+        buffer = create_buffer_fn()
+        warmup(buffer)
         for episode in range(episodes):
-            if self.use_linear_lr_decay:
-                self.trainer.policy.lr_decay(episode, episodes)
+            step_total = 0
+            for step in range(episode_length):
+                # Check if there are new network parameters from the trainer
+                try:
+                    while True:
+                        new_params = param_queue.get_nowait()
+                        policy.load_new_model(new_params)
+                        print("Data Collector: Updated network parameters.")
+                except queue.Empty:
+                    pass  # No new parameters, proceed
 
-            for step in range(self.episode_length):
-                # Sample actions
-                values, actions, action_log_probs, rnn_states, rnn_states_critic = self.collect(step)
-                    
-                # Obser reward and next obs
-                obs, share_obs, rewards, dones, infos = self.envs.step(actions)
+                values, actions, action_log_probs, rnn_states, rnn_states_critic = collect(step, buffer, policy)
 
+                obs, share_obs, rewards, dones, infos = envs.step(actions)
+                # Put the experience into the queue
                 data = obs, share_obs, rewards, dones, infos, \
                        values, actions, action_log_probs, \
                        rnn_states, rnn_states_critic 
                 
-                # insert data into buffer
-                self.insert(data)
 
-            # compute return and update network
-            self.compute()
-            train_infos = self.train()
-            
-            # post process
-            total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads           
-            # save model
-            if (episode % self.save_interval == 0 or episode == episodes - 1):
-                self.save(episode)
+                data_queue.put(data)
+                insert(data, buffer)
 
-            # log information
-            if episode % self.log_interval == 0:
-                end = time.time()
+            print(f"Data collection for Episode {episode+1}/{episodes} completed.")
+        print("Data collection process completed.")
+        # Signal that data collection is done
+        data_queue.put(None)
+        envs.close()
+
+    def run(self):
+
+        episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+
+        data_queue = multiprocessing.Queue(maxsize=64*self.episode_length)
+        param_queue = multiprocessing.Queue()  # For sending updated network parameters
+
+        # Start data collector process
+        collector_process = multiprocessing.Process(
+            target=self.multiprocess_data_collection,
+            args=(data_queue, param_queue, episodes, self.episode_length, self.envs_fn, self.create_policy_fn, self.create_buffer_fn)
+        )
+        collector_process.start()
+
+        # Start the trainer process
+        trainer_process = multiprocessing.Process(
+            target=self.multiprocess_trainer,
+            args=(data_queue, param_queue,self.create_writer ,self.create_policy_fn, self.create_buffer_fn, self.create_trainer_fn)
+        )
+        trainer_process.start()
+
+        # Wait for data collection to complete
+        collector_process.join()
+        print("Data collection completed.")
+
+        # Wait for trainer to finish processing
+        trainer_process.join()
+        print("Training completed.")
+
+        # for episode in range(episodes):
+        #     if self.use_linear_lr_decay:
+        #         self.trainer.policy.lr_decay(episode, episodes)
+
+        #     step_total = 0
+
+        #     for step in range(self.episode_length):
+        #         # Sample actions
+        #         values, actions, action_log_probs, rnn_states, rnn_states_critic = self.collect(step)
+
+                    
+        #         # Obser reward and next obs
+        #         step_start = time.time()
+        #         obs, share_obs, rewards, dones, infos = self.envs.step(actions)
+        #         step_end = time.time()
+        #         step_total += step_end - step_start
+
+        #         data = obs, share_obs, rewards, dones, infos, \
+        #                values, actions, action_log_probs, \
+        #                rnn_states, rnn_states_critic 
                 
-                print(f"\nEpisode time: {(end-start)/self.log_interval:.2} seconds\npercent done: {episode/episodes*100:.2}% ({episode}/{episodes})")
-                self.log_train(train_infos, total_num_steps)
+        #         # insert data into buffer
+        #         self.insert(data)
 
-            # eval
-            if episode % self.eval_interval == 0 and self.use_eval:
-                self.eval(total_num_steps)
-    
-    @torch.no_grad()
-    def compute(self):
-        """Calculate returns for the collected data."""
-        self.trainer.prep_rollout()
-        next_values = self.trainer.policy.get_values({key:np.concatenate(self.buffer.share_obs[key][-1]) for key in self.buffer.dict_keys},
-                                                        {key:np.concatenate(self.buffer.obs[key][-1]) for key in self.buffer.dict_keys},
-                                                        np.concatenate(self.buffer.rnn_states_critic[-1]),
-                                                        np.concatenate(self.buffer.masks[-1]))
-        next_values = np.array(np.split(_t2n(next_values), self.n_rollout_threads))
-        self.buffer.compute_returns(next_values, self.trainer.value_normalizer)
+        #     # compute return and update network
+        #     self.compute()
+        #     train_start = time.time()
+        #     train_infos = self.train()
+        #     train_end = time.time()
 
-    def warmup(self):
-        # reset env
-        obs, share_obs = self.envs.reset()
 
-        # replay buffer
-        if not self.use_centralized_V:
-            share_obs = obs
+        #     # post process
+        #     total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads           
+        #     # save model
+        #     if (episode % self.save_interval == 0 or episode == episodes - 1):
+        #         self.save(episode)
 
-        if self.buffer.dict_keys == None:
-            self.buffer.share_obs[0] = share_obs.copy()
-            self.buffer.obs[0] = obs.copy()
-        else:
-            for key in self.buffer.dict_keys:
-                self.buffer.share_obs[key][0] = share_obs[key].copy()
-                self.buffer.obs[key][0] = obs[key].copy()
+        #     # log information
+        #     if episode % self.log_interval == 0:
+        #         end = time.time()
+                
+        #         print(f"\nEpisode time: {(end-start)/self.log_interval:.2} seconds\npercent done: {episode/episodes*100:.2}% ({episode}/{episodes})")
+        #         self.log_train(train_infos, total_num_steps)
 
-    @torch.no_grad()
-    def collect(self, step):
-        self.trainer.prep_rollout()
-        value, action, action_log_prob, rnn_state, rnn_state_critic \
-            = self.trainer.policy.get_actions({key:np.concatenate(self.buffer.share_obs[key][step]) for key in self.buffer.dict_keys},
-                                            {key:np.concatenate(self.buffer.obs[key][step]) for key in self.buffer.dict_keys},
-                                            np.concatenate(self.buffer.rnn_states[step]),
-                                            np.concatenate(self.buffer.rnn_states_critic[step]),
-                                            np.concatenate(self.buffer.masks[step]))
-        # [self.envs, agents, dim]
-        values = np.array(np.split(_t2n(value), self.n_rollout_threads))
-        actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
-        action_log_probs = np.array(np.split(_t2n(action_log_prob), self.n_rollout_threads))
-        rnn_states = np.array(np.split(_t2n(rnn_state), self.n_rollout_threads))
-        rnn_states_critic = np.array(np.split(_t2n(rnn_state_critic), self.n_rollout_threads))
+        #     # eval
+        #     if episode % self.eval_interval == 0 and self.use_eval:
+        #         self.eval(total_num_steps)
 
-        return values, actions, action_log_probs, rnn_states, rnn_states_critic
-
-    def insert(self, data):
-        obs, share_obs, rewards, dones, infos, \
-        values, actions, action_log_probs, rnn_states, rnn_states_critic = data
-
-        dones_env = np.all(dones, axis=1)
-
-        rnn_states[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
-        rnn_states_critic[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, *self.buffer.rnn_states_critic.shape[3:]), dtype=np.float32)
-
-        masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-        masks[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
-        
-        if not self.use_centralized_V:
-            share_obs = obs
-
-        self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic,
-                           actions, action_log_probs, values, rewards, masks)
-
-    def log_train(self, train_infos, total_num_steps):
-        train_infos["average_step_rewards"] = np.mean(self.buffer.rewards)
-        for k, v in train_infos.items():
-            if self.use_wandb:
-                wandb.log({k: v}, step=total_num_steps)
-            else:
-                self.writter.add_scalars(k, {k: v}, total_num_steps)
     
     @torch.no_grad()
     def eval2(self, total_num_steps):

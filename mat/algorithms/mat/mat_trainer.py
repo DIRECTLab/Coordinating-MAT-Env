@@ -5,6 +5,7 @@ from mat.utils.util import get_gard_norm, huber_loss, mse_loss
 from mat.utils.valuenorm import ValueNorm
 from mat.algorithms.utils.util import check
 
+import time
 
 class MATTrainer:
     """
@@ -89,7 +90,7 @@ class MATTrainer:
             value_loss = value_loss.mean()
 
         return value_loss
-
+    
     def ppo_update(self, sample):
         """
         Update actor and critic networks.
@@ -141,6 +142,7 @@ class MATTrainer:
         loss = policy_loss - dist_entropy * self.entropy_coef + value_loss * self.value_loss_coef
 
         self.policy.optimizer.zero_grad()
+        
         loss.backward()
 
         if self._use_max_grad_norm:
