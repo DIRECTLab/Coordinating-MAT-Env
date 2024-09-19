@@ -7,7 +7,7 @@ tasks:
   name: "test"
   scene_asset_path: GRUtopia/assets/scenes/empty.usd
   scene_scale: [0.01, 0.01, 0.01]
-  env_num: 3
+  env_num: 1
   offset_size: 30.0
   robots:
   - name: r1

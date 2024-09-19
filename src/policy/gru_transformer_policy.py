@@ -229,6 +229,12 @@ class GRUTransformerPolicy:
         self.transformer.load_state_dict(transformer_state_dict)
         # self.transformer.reset_std()
 
+    def load_new_model(self, state_dict):
+        self.transformer.load_state_dict(state_dict)
+
+    def get_state_dict(self):
+        return self.transformer.state_dict()
+
     def train(self):
         self.transformer.train()
 
