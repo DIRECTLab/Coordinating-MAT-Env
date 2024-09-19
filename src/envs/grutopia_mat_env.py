@@ -27,8 +27,11 @@ from grutopia.core.env import BaseEnv
 
 class GRUtopia_MAT_Env(MultiAgentEnv):
 
-    def __init__(self,  config: SimulatorConfig, headless: bool = True, webrtc: bool = False, native: bool = False, name = 0) -> None:
-        self.GRUtopia_base_env: BaseEnv = BaseEnv(config,headless,webrtc,native)
+    def __init__(self,  config: SimulatorConfig, headless: bool = True, webrtc: bool = False, native: bool = False, name = 0, empty=False) -> None:
+        if not empty:
+            self.GRUtopia_base_env: BaseEnv = BaseEnv(config,headless,webrtc,native)
+        else:
+            self.GRUtopia_base_env = None
         self.name = name
         self.num_agents = len(config.config_dict['tasks'][0]['robots'])
         self.num_envs = config.config_dict['tasks'][0]['env_num']
@@ -73,23 +76,44 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         self.step_count = 0
         self.nextcommand = 0
     
+    def close(self):
+        if self.GRUtopia_base_env is not None:
+            self.GRUtopia_base_env.close()
+
     def _generate_new_commands(self):
         return [[self.rng.random()*20+self.offsets[i], self.rng.random()*20,1.05] for i in range(self.num_envs)]
 
     def reset(self):
     # Reset coverage grid
-        self.coverage_grid = np.zeros((self.num_envs, self.grid_size_x, self.grid_size_y))
+        if self.GRUtopia_base_env is not None:
+            self.coverage_grid = np.zeros((self.num_envs, self.grid_size_x, self.grid_size_y))
 
-        local_state = self.GRUtopia_base_env.reset()[0]
-        local_state = self._convert_obs_to_array(local_state)
-        global_state = local_state
-        self.commands = self._generate_new_commands()
-        self.step_count=0
-        self.nextcommand = 0
-        return local_state, global_state
+            local_state = self.GRUtopia_base_env.reset()[0]
+            local_state = self._convert_obs_to_array(local_state)
+            global_state = local_state
+            self.commands = self._generate_new_commands()
+            self.step_count=0
+            self.nextcommand = 0
+            return local_state, global_state
+        else:
+            # fake_local_state = {
+            #     'pos_ori': np.zeros((self.num_envs, self.num_agents, 10)),
+            #     'cam': np.zeros((self.num_envs, self.num_agents, 240, 320, 4))
+            # }
+            # fake_global_state = {
+            #     'pos_ori': np.zeros((self.num_envs, self.num_agents, 10)),
+            #     'cam': np.zeros((self.num_envs, self.num_agents, 240, 320, 4))
+            # }
+
+            fake_local_state_sample = self.observation_space[0].sample()
+            fake_global_state_sample = self.share_observation_space[0].sample()
+
+            return fake_local_state_sample, fake_global_state_sample
         
 
     def step(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self.GRUtopia_base_env is None:
+            return *self.reset(), np.zeros((self.num_envs, self.num_agents,1)), np.zeros((self.num_envs, self.num_agents)), {}
         actions = self._convert_actions(actions)
         local_state = self.GRUtopia_base_env.step(actions)
         local_state = self._convert_obs_to_array(local_state)

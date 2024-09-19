@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import multiprocessing
 import sys
 import os
 import socket
@@ -20,10 +21,10 @@ sim_config = SimulatorConfig(file_path)
 SEED = 0
 HEADLESS = True
 
-def make_train_env(all_args):
+def make_train_env(empty=False):
 
-    env = GRUtopia_MAT_Env(sim_config, HEADLESS)
-    env.seed(all_args.seed * 1000)
+    env = GRUtopia_MAT_Env(sim_config, HEADLESS,empty=empty)
+    env.seed(0)
 
     return env
 
@@ -110,14 +111,16 @@ def main(args):
 
     num_agents = len(sim_config.config_dict['tasks'][0]['robots'])
     all_args.run_dir = run_dir
+    all_args.num_env_steps = 100000
+    all_args.episode_length = 300
     all_args.n_rollout_threads = sim_config.config_dict['tasks'][0]['env_num']
     
-    envs = make_train_env(all_args)
+    envs_fn = make_train_env
     eval_envs = None
 
     config = {
         "all_args": all_args,
-        "envs": envs,
+        "envs_fn": envs_fn,
         "eval_envs": eval_envs,
         "num_agents": num_agents,
         "device": device,
@@ -129,15 +132,16 @@ def main(args):
     runner.run()
 
     # post process
-    envs.close()
-    if all_args.use_eval and eval_envs is not envs:
-        eval_envs.close()
+    # envs.close()
+    # if all_args.use_eval and eval_envs is not envs:
+    #     eval_envs.close()
         # for eval_env in eval_envs:
         #     eval_env.close()
 
-    runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
-    runner.writter.close()
+    # runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
+    # runner.writter.close()
 
 
 if __name__ == "__main__":
+     multiprocessing.set_start_method('spawn', force=True)
      main(sys.argv[1:])
