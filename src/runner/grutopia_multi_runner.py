@@ -136,6 +136,10 @@ class GRUtopiaRunner(Runner):
         return SummaryWriter(self.log_dir)
         
     def multiprocess_trainer(self,data_queue, param_queue, create_writer, create_policy_fn, create_buffer_fn ,create_trainer_fn):
+        def save(episode, policy):
+            """Save policy's actor and critic networks."""
+            policy.save(self.save_dir, episode)
+
         def log_train(train_infos, total_num_steps, buffer, writter):
             train_infos["average_step_rewards"] = np.mean(buffer.rewards)
             for k, v in train_infos.items():
@@ -230,7 +234,7 @@ class GRUtopiaRunner(Runner):
                 total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads           
                 # save model
                 if episode % self.save_interval == 0:
-                    self.save(episode)
+                    save(episode, policy)
                     print(f"Model saved at episode {episode}.")
                 episode += 1
                 # log information
