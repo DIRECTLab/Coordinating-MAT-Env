@@ -17,7 +17,7 @@ import torch.nn as nn
 # )
 
 class CustomConvNet(nn.Module):
-    def __init__(self, input_channels, input_height, input_width, conv_layers_params, output_size):
+    def __init__(self, input_channels, input_height, input_width, conv_layers_params, output_size, device='cpu'):
         super(CustomConvNet, self).__init__()
         # Save input dimensions
         self.input_channels = input_channels
@@ -60,6 +60,10 @@ class CustomConvNet(nn.Module):
         self.fc_input_size = self._get_conv_output_size()
         self.fc = nn.Linear(self.fc_input_size, output_size)
 
+        #send model to device
+        self.device = device
+        self.to(device)
+
     def _get_conv_output_size(self):
         # Create a dummy input tensor with the same size as the input images
         input_size = (1, self.input_channels, self.input_height, self.input_width)
@@ -71,10 +75,17 @@ class CustomConvNet(nn.Module):
         return n_size
 
     def forward(self, x):
+        #to tensor
+        batch_dims = (x.shape[0], x.shape[1])
+        x = torch.tensor(x, dtype=torch.float32, device=self.device)
+        # combine first two dims into batch dimension
+        x = x.view(-1, self.input_channels, self.input_height, self.input_width)
         # Pass input through convolutional layers
         x = self.conv(x)
         # Flatten the output from convolutional layers
-        x = x.view(x.size(0), -1)
+        x = x.reshape(-1, self.fc_input_size)
+        #uncombine batch dimension
+        x = x.view(*batch_dims ,x.shape[-1])
         # Pass through the fully connected layer
         x = self.fc(x)
         return x

@@ -27,6 +27,9 @@ from grutopia.core.env import BaseEnv
 
 class GRUtopia_MAT_Env(MultiAgentEnv):
 
+    ENV_WIDTH = 10
+    ENV_HEIGHT = 10
+
     def __init__(self,  config: SimulatorConfig, headless: bool = True, webrtc: bool = False, native: bool = False, name = 0, empty=False) -> None:
         if not empty:
             self.GRUtopia_base_env: BaseEnv = BaseEnv(config,headless,webrtc,native)
@@ -41,30 +44,24 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         self.step_count = 0
         self.nextcommand = 0
 
-        self.commands = [[0, 0,0] for i in range(self.num_envs)]
+        self.commands = [[0,0,0,0] for i in range(self.num_envs)]
 
         # scale the observation sapce based on the number of agents
         self.observation_space = [gym.spaces.Dict({
             'cam': Box(0,1,(240,320,4)),
-            'pos_ori': Box(-np.inf,np.inf,(10,))
+            'pos_ori': Box(-np.inf,np.inf,(11,))
         })]
         self.share_observation_space = [gym.spaces.Dict({
             'cam': Box(0,1,(240,320,4)),
-            'pos_ori': Box(-np.inf,np.inf,(10,))
+            'pos_ori': Box(-np.inf,np.inf,(11,))
         })]
 
         self.sim_config = config
 
         # Define the dimensions and boundaries of the rectangle at the center of the offset area
-        self.rectangle_width = 10  # Adjust as needed
-        self.rectangle_height = 10  # Adjust as needed
-        self.rectangle_x_min = 0
-        self.rectangle_x_max = self.rectangle_width
-        self.rectangle_y_min = 0
-        self.rectangle_y_max = self.rectangle_height
         # Define grid resilution size for coverage tracking
-        self.grid_size_x = 100  # Adjust as needed
-        self.grid_size_y = 100  # Adjust as needed
+        self.grid_size_x = 10  # Adjust as needed
+        self.grid_size_y = 10  # Adjust as needed
 
         # Define maximum steps per episode
         self.max_steps = 1000  # Adjust as needed
@@ -81,7 +78,7 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
             self.GRUtopia_base_env.close()
 
     def _generate_new_commands(self):
-        return [[self.rng.random()*20+self.offsets[i], self.rng.random()*20,1.05] for i in range(self.num_envs)]
+        return [[self.rng.random()*(self.ENV_WIDTH/2)+self.offsets[i], self.rng.random()*(self.ENV_HEIGHT/2),self.rng.random()*(self.ENV_WIDTH/2),self.rng.random()*(self.ENV_HEIGHT/2)] for i in range(self.num_envs)]
 
     def reset(self):
     # Reset coverage grid
@@ -125,10 +122,15 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         # Update coverage grid and compute reward
         for i in range(self.num_envs):
             # Define per-environment rectangle boundaries based on offset
-            rectangle_x_min = self.offsets[i]
-            rectangle_x_max = rectangle_x_min + self.rectangle_width
-            rectangle_y_min = 0  # Assuming no offset in y-direction; adjust if needed
-            rectangle_y_max = rectangle_y_min + self.rectangle_height
+            pos_x = self.commands[i][0]
+            pos_y = self.commands[i][1]
+            width = self.commands[i][2]
+            height = self.commands[i][2]
+
+            rectangle_x_min = pos_x - width / 2
+            rectangle_x_max = pos_x + width / 2
+            rectangle_y_min = pos_y - height / 2
+            rectangle_y_max = pos_y + height / 2
 
             for j in range(self.num_agents):
                 # Get the agent's current position
@@ -141,7 +143,7 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
                 not (rectangle_y_min <= y_pos <= rectangle_y_max):
                     # Agent is out of bounds
                     # sacle the reward based on the distance from the center of the rectangle
-                    reward[i, j, 0] -= 1 * np.linalg.norm([x_pos-self.rectangle_x_max/2,y_pos-self.rectangle_y_max/2])
+                    reward[i, j, 0] -= 1 * np.linalg.norm([x_pos-rectangle_x_max/2,y_pos-rectangle_y_max/2])
                     out_of_bounds = True
 
                 # Proceed only if the agent is within bounds

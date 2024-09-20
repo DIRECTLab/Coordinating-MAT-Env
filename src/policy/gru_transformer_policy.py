@@ -58,10 +58,16 @@ class GRUTransformerPolicy:
         else:
             raise NotImplementedError
         
-        #set up input conv
+        conv_layers_params = [
+            {'out_channels': 128, 'kernel_size': 5, 'stride': 4, 'activation': 'relu'},
+            {'out_channels': 64, 'kernel_size': 5, 'stride': 2, 'activation': 'relu'},
+            {'out_channels': 32, 'kernel_size': 5, 'stride': 1, 'activation': 'relu'},
+        ]
+        
+        self.conv = CustomConvNet(self.obs_dim['cam'][2],self.obs_dim['cam'][0],self.obs_dim['cam'][1], conv_layers_params, 16, device=device)
         
 
-        self.transformer = MAT(self.share_obs_dim['pos_ori'][0], self.obs_dim['pos_ori'][0], self.act_dim, num_agents,
+        self.transformer = MAT(self.share_obs_dim['pos_ori'][0]+16, self.obs_dim['pos_ori'][0]+16, self.act_dim, num_agents,
                                n_block=args.n_block, n_embd=args.n_embd, n_head=args.n_head,
                                encode_state=args.encode_state, device=device,
                                action_type=self.action_type, dec_actor=args.dec_actor,
@@ -120,13 +126,28 @@ class GRUTransformerPolicy:
         """
 
         #add in conv
-        cent_obs = cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0])
-        obs = obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0])
+        pos_cent_obs = torch.tensor(cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0]), dtype=torch.float32, device=self.device)
+        pos_obs = torch.tensor(obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0]), dtype=torch.float32, device=self.device)
+
+
+        cam_cent_obs = cent_obs['cam'].reshape(-1, self.num_agents, self.share_obs_dim['cam'][0], self.share_obs_dim['cam'][1], self.share_obs_dim['cam'][2])
+        cam_obs = obs['cam'].reshape(-1, self.num_agents, self.obs_dim['cam'][0], self.obs_dim['cam'][1], self.obs_dim['cam'][2])
+
+        #swap the 0 and 2 dims
+        cam_cent_obs = np.transpose(cam_cent_obs, (0,1,4,2,3))
+        cam_obs = np.transpose(cam_obs, (0,1,4,2,3))
+
+        cam_cent_obs = self.conv(cam_cent_obs)
+        cam_obs = self.conv(cam_obs)
+
         if available_actions is not None:
             available_actions = available_actions.reshape(-1, self.num_agents, self.act_dim)
 
-        actions, action_log_probs, values = self.transformer.get_actions(cent_obs,
-                                                                         obs,
+        combined_cent_obs = torch.cat((pos_cent_obs, cam_cent_obs), dim=-1)
+        combined_obs = torch.cat((pos_obs, cam_obs), dim=-1)
+
+        actions, action_log_probs, values = self.transformer.get_actions( combined_cent_obs,
+                                                                         combined_obs,
                                                                          available_actions,
                                                                          deterministic)
 
@@ -149,13 +170,25 @@ class GRUTransformerPolicy:
         :return values: (torch.Tensor) value function predictions.
         """
 
-        cent_obs = cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0])
-        obs = obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0])
+        pos_cent_obs = torch.tensor(cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0]), dtype=torch.float32, device=self.device)
+        pos_obs = torch.tensor(obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0]), dtype=torch.float32, device=self.device)
+
+        cam_cent_obs = cent_obs['cam'].reshape(-1, self.num_agents, self.share_obs_dim['cam'][0], self.share_obs_dim['cam'][1], self.share_obs_dim['cam'][2])
+        cam_obs = obs['cam'].reshape(-1, self.num_agents, self.obs_dim['cam'][0], self.obs_dim['cam'][1], self.obs_dim['cam'][2])
+
+        cam_cent_obs = np.transpose(cam_cent_obs, (0,1,4,2,3))
+        cam_obs = np.transpose(cam_obs, (0,1,4,2,3))
 
         if available_actions is not None:
             available_actions = available_actions.reshape(-1, self.num_agents, self.act_dim)
 
-        values = self.transformer.get_values(cent_obs, obs, available_actions)
+        cam_cent_obs = self.conv(cam_cent_obs)
+        cam_obs = self.conv(cam_obs)
+
+        combined_cent_obs = torch.cat((pos_cent_obs, cam_cent_obs), dim=-1)
+        combined_obs = torch.cat((pos_obs, cam_obs), dim=-1)
+
+        values = self.transformer.get_values(combined_cent_obs, combined_obs, available_actions)
 
         values = values.view(-1, 1)
 
@@ -179,13 +212,26 @@ class GRUTransformerPolicy:
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
-        cent_obs = cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0])
-        obs = obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0])
+        pos_cent_obs = torch.tensor(cent_obs['pos_ori'].reshape(-1, self.num_agents, self.share_obs_dim['pos_ori'][0]), dtype=torch.float32, device=self.device)
+        pos_obs = torch.tensor(obs['pos_ori'].reshape(-1, self.num_agents, self.obs_dim['pos_ori'][0]), dtype=torch.float32, device=self.device)
+
+        cam_cent_obs = cent_obs['cam'].reshape(-1, self.num_agents, self.share_obs_dim['cam'][0], self.share_obs_dim['cam'][1], self.share_obs_dim['cam'][2])
+        cam_obs = obs['cam'].reshape(-1, self.num_agents, self.obs_dim['cam'][0], self.obs_dim['cam'][1], self.obs_dim['cam'][2])
+
+        cam_cent_obs = np.transpose(cam_cent_obs, (0,1,4,2,3))
+        cam_obs = np.transpose(cam_obs, (0,1,4,2,3))
+
         actions = actions.reshape(-1, self.num_agents, self.act_num)
         if available_actions is not None:
             available_actions = available_actions.reshape(-1, self.num_agents, self.act_dim)
 
-        action_log_probs, values, entropy = self.transformer(cent_obs, obs, actions, available_actions)
+        cam_cent_obs = self.conv(cam_cent_obs)
+        cam_obs = self.conv(cam_obs)
+
+        combined_cent_obs = torch.cat((pos_cent_obs, cam_cent_obs), dim=-1)
+        combined_obs = torch.cat((pos_obs, cam_obs), dim=-1)
+
+        action_log_probs, values, entropy = self.transformer(combined_cent_obs, combined_obs, actions, available_actions)
 
         action_log_probs = action_log_probs.view(-1, self.act_num)
         values = values.view(-1, 1)

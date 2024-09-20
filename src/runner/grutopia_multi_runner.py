@@ -111,7 +111,10 @@ def multiprocess_trainer(self_config, data_queue, param_queue, log_queue):
     while True:
         # Collect a batch of experiences from the queue
         while True:
-            experience = data_queue.get()
+            try:
+                experience = data_queue.get()
+            except queue.Empty:
+                break
             if experience is None:
                 # Data collection is done, exit
                 print("Trainer process received termination signal.")
@@ -232,6 +235,8 @@ def multiprocess_data_collection(self_config, data_queue, param_queue, episodes,
     print("Data collection process completed.")
     # Signal that data collection is done
     data_queue.put(None)
+    time.sleep(10) # Wait for trainer to finish, otherwide it will hange waiting or have a segsegmentaion fault
+
     envs.close()
 
 class GRUtopiaRunner(Runner):
@@ -363,7 +368,7 @@ class GRUtopiaRunner(Runner):
         # Signal logging thread to finish
         log_queue.put(None)
         log_thread.join()
-        print("Logging completed."
+        print("Logging completed.")
 
 
         # for episode in range(episodes):
