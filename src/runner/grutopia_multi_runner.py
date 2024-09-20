@@ -239,10 +239,6 @@ def multiprocess_data_collection(self_config, data_queue, param_queue, episodes,
     for i in range(10):
         time.sleep(1)
         print(f"Waiting for trainer to finish...{10-i}",)
-        try:
-            param_queue.get_nowait()
-        except queue.Empty:
-            continue
 
     envs.close()
 
@@ -366,17 +362,22 @@ class GRUtopiaRunner(Runner):
         log_thread = threading.Thread(target=logging_thread, args=(log_queue, self.writter))
         log_thread.start()
 
+        
         # Wait for data collection and trainer processes
-        collector_process.join()
-        print("Data collection completed.")
+
+
         trainer_process.join()
         print("Training completed.")
+
+        # After trainer is done, signal data collector to finish if needed
+        # Since the data collector might be waiting for parameters, we can ensure it exits cleanly
+        collector_process.join()
+        print("Data collection completed.")
 
         # Signal logging thread to finish
         log_queue.put(None)
         log_thread.join()
         print("Logging completed.")
-
 
         # for episode in range(episodes):
         #     if self.use_linear_lr_decay:
