@@ -363,7 +363,7 @@ class GRUtopiaRunner(Runner):
         # Signal logging thread to finish
         log_queue.put(None)
         log_thread.join()
-        print("Logging completed.")
+        print("Logging completed."
 
 
         # for episode in range(episodes):
