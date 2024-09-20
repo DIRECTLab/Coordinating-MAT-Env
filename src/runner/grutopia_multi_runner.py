@@ -235,7 +235,14 @@ def multiprocess_data_collection(self_config, data_queue, param_queue, episodes,
     print("Data collection process completed.")
     # Signal that data collection is done
     data_queue.put(None)
-    time.sleep(10) # Wait for trainer to finish, otherwide it will hange waiting or have a segsegmentaion fault
+    # time.sleep(10) # Wait for trainer to finish, otherwide it will hange waiting or have a segsegmentaion fault
+    for i in range(10):
+        time.sleep(1)
+        print(f"Waiting for trainer to finish...{10-i}",)
+        try:
+            param_queue.get_nowait()
+        except queue.Empty:
+            continue
 
     envs.close()
 
