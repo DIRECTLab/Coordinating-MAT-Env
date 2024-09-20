@@ -1,7 +1,8 @@
 # Developer only. User read-only.
 robots:
 - type: "HumanoidRobot"
-  usd_path: "GRUtopia/assets/robots/h1/h1.usd"
+  # usd_path: "GRUtopia/assets/robots/h1/h1.usd"
+  usd_path: "GRUtopia/assets/robots/h1/h1_light.usd"
   gains: [0.0, 0.0]
   joint_names:
   - left_hip_yaw_joint

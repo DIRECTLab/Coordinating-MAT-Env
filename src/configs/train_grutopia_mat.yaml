@@ -5,10 +5,14 @@ simulator:
 tasks:
 - type: "SingleInferenceTask"
   name: "test"
-  scene_asset_path: GRUtopia/assets/scenes/empty.usd
+  # scene_asset_path: GRUtopia/assets/scenes/empty.usd
+  scene_asset_path: GRUtopia/assets/scenes/empty_dark.usd
   # scene_asset_path: GRUtopia/assets/scenes/bush_flat.usd
   scene_scale: [0.01, 0.01, 0.01]
-  env_num: 2
+  # scene_scale: [1.0, 1.0, 1.0]
+  # scene_scale: [100.0, 100.0, 100.0]
+
+  env_num: 3
   offset_size: 30.0
   robots:
   - name: r1
@@ -31,4 +35,35 @@ tasks:
     sensor_params:
     - name: "camera"
       enable: true
+  - name: r3
+    prim_path: "/World/r3"
+    type: "HumanoidRobot"
+    position: [7, -1.5, 1.05]
+    scale: [1, 1, 1]
+    controller_params:
+    - name: "move_by_speed"
+    sensor_params:
+    - name: "camera"
+      enable: true
+  # TOOO SLOW TO RUN
+  # - name: r4
+  #   prim_path: "/World/r4"
+  #   type: "HumanoidRobot"
+  #   position: [8, -2.25, 1.05]
+  #   scale: [1, 1, 1]
+  #   controller_params:
+  #   - name: "move_by_speed"
+  #   sensor_params:
+  #   - name: "camera"
+  #     enable: true
+  # - name: r5
+  #   prim_path: "/World/r5"
+  #   type: "HumanoidRobot"
+  #   position: [9, -3, 1.05]
+  #   scale: [1, 1, 1]
+  #   controller_params:
+  #   - name: "move_by_speed"
+  #   sensor_params:
+  #   - name: "camera"
+  #     enable: true
   

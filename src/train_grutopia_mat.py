@@ -20,6 +20,9 @@ sim_config = SimulatorConfig(file_path)
 
 SEED = 0
 HEADLESS = True
+# HEADLESS = False
+
+
 
 def make_train_env(empty=False):
 
@@ -111,8 +114,8 @@ def main(args):
 
     num_agents = len(sim_config.config_dict['tasks'][0]['robots'])
     all_args.run_dir = run_dir
-    all_args.num_env_steps = 1000
-    all_args.episode_length = 77
+    all_args.num_env_steps = 100000
+    all_args.episode_length = 770
     all_args.n_rollout_threads = sim_config.config_dict['tasks'][0]['env_num']
     
     envs_fn = make_train_env
