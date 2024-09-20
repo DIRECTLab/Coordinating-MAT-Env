@@ -61,6 +61,9 @@ def multiprocess_trainer(self_config, data_queue, param_queue, log_queue):
     def log_train(train_infos, total_num_steps, buffer):
         train_infos["average_step_rewards"] = np.mean(buffer.rewards)
         # Send the log data to the log_queue
+        #dtach all tensors data to avoid pickling error
+        train_infos = {k: v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v for k, v in train_infos.items()}
+
         log_queue.put((train_infos, total_num_steps))
 
     @torch.no_grad()

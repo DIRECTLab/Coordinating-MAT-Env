@@ -233,7 +233,11 @@ class GRUTransformerPolicy:
         self.transformer.load_state_dict(state_dict)
 
     def get_state_dict(self):
-        return self.transformer.state_dict()
+        state = self.transformer.state_dict()
+        #detach all tensors and remove grads
+        for key in state:
+            state[key] = state[key].detach().cpu()
+        return state
 
     def train(self):
         self.transformer.train()
