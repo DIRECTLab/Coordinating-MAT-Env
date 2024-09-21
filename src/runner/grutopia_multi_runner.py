@@ -419,9 +419,9 @@ class GRUtopiaRunner(Runner):
                         wandb.log({k: v}, step=total_num_steps)
                     else:
                         # check forscalar
-                        if isinstance(v, (int, float)):
+                        try:
                             writer.add_scalars(k, {k: v}, total_num_steps)
-                        else:
+                        except AssertionError:
                             if k == "position":
                                 total_heatmap = np.zeros((100, 100))
                                 for i in range(v.shape[1]):
@@ -433,7 +433,10 @@ class GRUtopiaRunner(Runner):
                                     total_heatmap_stack = np.stack(total_heatmap_stack)
                                     total_heatmap += np.sum(total_heatmap_stack, axis=0)
                                     #normalize
-                                    norm_total_heatmap = total_heatmap / np.max(total_heatmap)
+                                    if np.max(total_heatmap) > 0:
+                                        norm_total_heatmap = total_heatmap / np.max(total_heatmap)
+                                    else:
+                                        norm_total_heatmap = total_heatmap
                                     writer.add_image(f"{k}_{i}", norm_total_heatmap,total_num_steps, dataformats='HW')
 
         log_thread = threading.Thread(target=logging_thread, args=(log_queue, self.writter, done))

@@ -210,7 +210,7 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         total_actions = []
 
         for i in range(self.num_envs):
-            total_actions.append({r['name']:{'move_by_speed':actions[i][j]} for j,r in enumerate(self.sim_config.config_dict['tasks'][0]['robots'])})
+            total_actions.append({r['name']:{'move_by_speed':actions[i][j]+np.array([1,0,0])} for j,r in enumerate(self.sim_config.config_dict['tasks'][0]['robots'])})
 
         return total_actions
 
