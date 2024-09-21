@@ -12,7 +12,7 @@ tasks:
   # scene_scale: [1.0, 1.0, 1.0]
   # scene_scale: [100.0, 100.0, 100.0]
 
-  env_num: 3
+  env_num: 1
   offset_size: 30.0
   robots:
   - name: r1

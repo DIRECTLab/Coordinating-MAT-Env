@@ -12,6 +12,8 @@ import multiprocessing
 import threading
 import queue
 
+import matplotlib.pyplot as plt
+
 def _t2n(x):
     return x.detach().cpu().numpy()
 
@@ -34,7 +36,7 @@ def create_buffer_fn(self_config):
 def create_trainer_fn(self_config, policy):
     return TrainAlgo(self_config['all_args'], policy, self_config['num_agents'], device=self_config['device'])
 
-def multiprocess_trainer(self_config, data_queue, param_queue, log_queue):
+def multiprocess_trainer(self_config, episodes ,data_queue, param_queue, log_queue, done):
     # Extract necessary attributes from self_config
     save_dir = self_config['save_dir']
     num_agents = self_config['num_agents']
@@ -44,6 +46,7 @@ def multiprocess_trainer(self_config, data_queue, param_queue, log_queue):
     use_centralized_V = self_config['use_centralized_V']
     save_interval = self_config['save_interval']
     log_interval = self_config['log_interval']
+    episodes = self_config['all_args'].num_env_steps // self_config['episode_length'] // n_rollout_threads
     episode_length = self_config['episode_length']
     all_args = self_config['all_args']
     device = self_config['device']
@@ -107,45 +110,54 @@ def multiprocess_trainer(self_config, data_queue, param_queue, log_queue):
     trainer = create_trainer_fn(self_config, policy)
     buffer = create_buffer_fn(self_config)
     # No need to warmup the buffer since trainer doesn't interact with the env
-    episode = 0
-    while True:
+    model = 0
+    
+    for episode in range(episodes):
         # Collect a batch of experiences from the queue
         while True:
             try:
-                experience = data_queue.get()
+                other_model, experience = data_queue.get()
             except queue.Empty:
                 break
-            if experience is None:
-                # Data collection is done, exit
-                print("Trainer process received termination signal.")
-                if buffer.step > 0:
-                    compute(buffer, trainer)
-                    train_infos = train(trainer, buffer)
-                    param_queue.put(policy.get_state_dict())
-                    print("Network parameters updated with remaining data.")
-                return
+            
+            if abs(other_model - model) > 1:
+                continue
 
             insert(experience, buffer)
+
             if buffer.step == 0:
                 break
 
-        # Process the batch
-        if buffer.step == 0:
-            compute(buffer, trainer)
-            train_infos = train(trainer, buffer)
-            param_queue.put(policy.get_state_dict())
 
-            total_num_steps = (episode + 1) * episode_length * n_rollout_threads
-            # save model
-            if episode % save_interval == 0:
-                save(episode, policy)
-                print(f"Model saved at episode {episode}.")
-            episode += 1
-            # log information
-            if episode % log_interval == 0:
-                log_train(train_infos, total_num_steps, buffer)
+        compute(buffer, trainer)
+        train_infos = train(trainer, buffer)
+        print(f"Training for Episode {episode+1}/{episodes} completed.")
+        param_queue.put(policy.get_state_dict())
+        model += 1
 
-def multiprocess_data_collection(self_config, data_queue, param_queue, episodes, episode_length):
+        total_num_steps = (episode + 1) * episode_length * n_rollout_threads
+
+        # save model
+        if episode % save_interval == 0:
+            save(episode, policy)
+            print(f"Model saved at episode {episode+1}.")
+
+
+        # log information
+        if episode % log_interval == 0:
+            train_infos['position'] = buffer.obs['pos_ori'][:,:,:, 4:6]
+            train_infos['command'] = buffer.obs['pos_ori'][0,:,0,0:4]
+            log_train(train_infos, total_num_steps, buffer)
+
+    if buffer.step > 0:
+        compute(buffer, trainer)
+        train_infos = train(trainer, buffer)
+        print("Network parameters updated with remaining data.")
+
+    done.set()
+    print("Trainer process completed.")
+
+def multiprocess_data_collection(self_config, data_queue, param_queue, episode_length, done):
     # Extract necessary attributes
     num_agents = self_config['num_agents']
     recurrent_N = self_config['recurrent_N']
@@ -207,18 +219,15 @@ def multiprocess_data_collection(self_config, data_queue, param_queue, episodes,
         rnn_states_critic = np.array(np.split(_t2n(rnn_state_critic), n_rollout_threads))
 
         return values, actions, action_log_probs, rnn_states, rnn_states_critic
+    
+    episode = 0
+    model = 0
+    while True:
 
-    for episode in range(episodes):
-        step_total = 0
+        # Check if there are new network parameters from the trainer
+        
+
         for step in range(episode_length):
-            # Check if there are new network parameters from the trainer
-            try:
-                while True:
-                    new_params = param_queue.get_nowait()
-                    policy.load_new_model(new_params)
-                    print("Data Collector: Updated network parameters.")
-            except queue.Empty:
-                pass  # No new parameters, proceed
 
             values, actions, action_log_probs, rnn_states, rnn_states_critic = collect(step, buffer, policy)
 
@@ -228,19 +237,29 @@ def multiprocess_data_collection(self_config, data_queue, param_queue, episodes,
                    values, actions, action_log_probs, \
                    rnn_states, rnn_states_critic
 
-            data_queue.put(data)
+            data_queue.put((model,data))
             insert(data, buffer)
 
-        print(f"Data collection for Episode {episode+1}/{episodes} completed.")
-    print("Data collection process completed.")
-    # Signal that data collection is done
-    data_queue.put(None)
-    # time.sleep(10) # Wait for trainer to finish, otherwide it will hange waiting or have a segsegmentaion fault
-    for i in range(10):
-        time.sleep(1)
-        print(f"Waiting for trainer to finish...{10-i}",)
+        print(f"Data collection for Episode {episode+1} completed.")
+        episode += 1
 
-    envs.close()
+        try:
+            while True:
+                if not done.is_set():
+                    new_params = param_queue.get_nowait()
+                else:
+                    print("Data collection process received termination signal.")
+                    envs.reset()
+                    time.sleep(1)  # pause
+                    envs.close()
+                    return
+                policy.load_new_model(new_params)
+                model += 1
+        except queue.Empty:
+            time.sleep(0.1)
+            continue
+
+        
 
 class GRUtopiaRunner(Runner):
     def __init__(self, config):
@@ -303,12 +322,50 @@ class GRUtopiaRunner(Runner):
         # Create reset_env if needed
         # self.reset_env = self.envs.reset()
 
+    def create_heatmap(self,positions, height=64, width=64):
+        """
+        Creates a heatmap image from a positions tensor.
+
+        Args:
+            positions (np.ndarray): A numpy array of shape (N, 2), where N is the number of agents.
+            height (int): The height of the heatmap image.
+            width (int): The width of the heatmap image.
+
+        Returns:
+            np.ndarray: A 2D heatmap array of shape (height, width).
+        """
+        # Compute the range of positions for x and y axes
+        x_min, x_max = positions[:, 0].min(), positions[:, 0].max()
+        y_min, y_max = positions[:, 1].min(), positions[:, 1].max()
+        
+        # Add margins to ensure all positions are within bounds
+        x_margin = (x_max - x_min) * 0.1 if x_max != x_min else 1
+        y_margin = (y_max - y_min) * 0.1 if y_max != y_min else 1
+        x_range = [-10, 10]
+        y_range = [-10, 10]
+        
+        # Create the heatmap using numpy's histogram2d function
+        heatmap, xedges, yedges = np.histogram2d(
+            positions[:, 1],  # y positions
+            positions[:, 0],  # x positions
+            bins=(height, width),
+            range=[y_range, x_range]
+        )
+        
+        # Normalize the heatmap for better visualization (optional)
+        if np.max(heatmap) > 0:
+            heatmap = heatmap / np.max(heatmap)
+        
+        return heatmap
+
     def run(self):
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
 
         data_queue = multiprocessing.Queue(maxsize=64*self.episode_length)
         param_queue = multiprocessing.Queue()
         log_queue = multiprocessing.Queue()
+
+        done = multiprocessing.Event()
 
         # Create a configuration dictionary
         self_config = {
@@ -334,45 +391,64 @@ class GRUtopiaRunner(Runner):
         # Start data collector process
         collector_process = multiprocessing.Process(
             target=multiprocess_data_collection,
-            args=(self_config, data_queue, param_queue, episodes, self.episode_length)
+            args=(self_config, data_queue, param_queue, self.episode_length,done)
         )
         collector_process.start()
 
         # Start the trainer process
         trainer_process = multiprocessing.Process(
             target=multiprocess_trainer,
-            args=(self_config, data_queue, param_queue, log_queue)
+            args=(self_config, episodes ,data_queue, param_queue, log_queue,done)
         )
         trainer_process.start()
 
         # Start logging thread
-        def logging_thread(log_queue, writer):
+        def logging_thread(log_queue, writer, done):
+            
             while True:
-                log_data = log_queue.get()
-                if log_data is None:
-                    break
+                
+                if done.is_set():
+                    writer.close()
+                    return
+                else:
+                    log_data = log_queue.get()
                 # log_data is (train_infos, total_num_steps)
                 train_infos, total_num_steps = log_data
                 for k, v in train_infos.items():
                     if self.use_wandb:
                         wandb.log({k: v}, step=total_num_steps)
                     else:
-                        writer.add_scalars(k, {k: v}, total_num_steps)
+                        # check forscalar
+                        if isinstance(v, (int, float)):
+                            writer.add_scalars(k, {k: v}, total_num_steps)
+                        else:
+                            if k == "position":
+                                total_heatmap = np.zeros((100, 100))
+                                for i in range(v.shape[1]):
+                                    total_heatmap_stack = []
+                                    for j in range(v.shape[0]):
+                                        positions = v[j,i,:,:]
+                                        heatmap = self.create_heatmap(positions, height=100, width=100)
+                                        total_heatmap_stack.append(heatmap)
+                                    total_heatmap_stack = np.stack(total_heatmap_stack)
+                                    total_heatmap += np.sum(total_heatmap_stack, axis=0)
+                                    #normalize
+                                    norm_total_heatmap = total_heatmap / np.max(total_heatmap)
+                                    writer.add_image(f"{k}_{i}", norm_total_heatmap,total_num_steps, dataformats='HW')
 
-        log_thread = threading.Thread(target=logging_thread, args=(log_queue, self.writter))
+        log_thread = threading.Thread(target=logging_thread, args=(log_queue, self.writter, done))
         log_thread.start()
-
-        
-        # Wait for data collection and trainer processes
 
 
         trainer_process.join()
         print("Training completed.")
-
-        # After trainer is done, signal data collector to finish if needed
-        # Since the data collector might be waiting for parameters, we can ensure it exits cleanly
+        
+        # Wait for data collection and trainer processes
         collector_process.join()
         print("Data collection completed.")
+
+        
+        
 
         # Signal logging thread to finish
         log_queue.put(None)

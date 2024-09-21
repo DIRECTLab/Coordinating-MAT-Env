@@ -49,11 +49,13 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         # scale the observation sapce based on the number of agents
         self.observation_space = [gym.spaces.Dict({
             'cam': Box(0,1,(240,320,4)),
-            'pos_ori': Box(-np.inf,np.inf,(11,))
+            'pos_ori': Box(-np.inf,np.inf,(11,)),
+            'pos': Box(-np.inf,np.inf,(2,))
         })]
         self.share_observation_space = [gym.spaces.Dict({
             'cam': Box(0,1,(240,320,4)),
-            'pos_ori': Box(-np.inf,np.inf,(11,))
+            'pos_ori': Box(-np.inf,np.inf,(11,)),
+            'pos': Box(-np.inf,np.inf,(2,))
         })]
 
         self.sim_config = config
@@ -64,7 +66,7 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
         self.grid_size_y = 10  # Adjust as needed
 
         # Define maximum steps per episode
-        self.max_steps = 1000  # Adjust as needed
+        self.max_steps = 100000  # Adjust as needed
 
         # Initialize the coverage grid
         self.coverage_grid = np.zeros((self.num_envs, self.grid_size_x, self.grid_size_y))
@@ -215,21 +217,26 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
     def _convert_obs_to_array(self,obs):
         total_array_pos_ori = []
         total_array_cam = []
+        total_array_pos = []
         for i,world in enumerate(obs):
             world_array_pos_ori = []
             world_array_cam = []
+            world_array_pos = []
             for robot in obs[world]:
 
                 robot_obs = obs[world][robot]
 
                 position = np.concatenate((robot_obs['position'],robot_obs['orientation']))
+                pos2 = np.array([robot_obs['position'][0],robot_obs['position'][1]])
                 camera = robot_obs['camera']['rgba']/255
 
                 world_array_pos_ori.append(position)
                 world_array_cam.append(camera)
+                world_array_pos.append(pos2)
 
             total_array_pos_ori.append(world_array_pos_ori)
             total_array_cam.append(world_array_cam)
+            total_array_pos.append(world_array_pos)
 
         commands = np.array(self.commands)[:, np.newaxis, :]
         commands = np.tile(commands, (1, self.num_agents, 1))
@@ -238,5 +245,6 @@ class GRUtopia_MAT_Env(MultiAgentEnv):
 
         return {
             'pos_ori': np.concatenate((commands,np.array(total_array_pos_ori)),axis=-1),
-            'cam': np.array(total_array_cam)
+            'cam': np.array(total_array_cam),
+            'pos': np.array(total_array_pos)
         }
