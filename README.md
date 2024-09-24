@@ -47,6 +47,11 @@ We evaluate our approach in complex, unstructured environments to test the syste
 
 * Forest (Nvidia optimized vegetation assets)
 * Rock fields (Nvidia Blast)
+  
+  A giude on how to create and use a destructible Environments with Blast is available [here](Docs/set_up_blast.md)
+
+  ![Blast](Docs/assets/blast/blast.gif)
+
 * Night and Day Lighting (Nvidia Sun Study)
 
 These environments are open-source and available for download SOON
