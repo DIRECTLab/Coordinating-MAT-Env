@@ -177,3 +177,4 @@ cython_debug/
 # Ignore all .DS_Store files
 **/.DS_Store
 
+**/.DS_Store
